@@ -255,6 +255,7 @@
     let rxChar = null;
     let txChar = null;
     let busy = false;
+    let rxTextBuffer = '';
 
     const statusEl = document.getElementById('status');
     const logBox = document.getElementById('logBox');
@@ -305,12 +306,33 @@
       setStatus(extra ? `${base}｜${extra}` : base);
     }
 
+    async function writeU8(u8) {
+      if (!rxChar) throw new Error('尚未取得可寫入特徵。');
+      // Android 上 writeWithoutResponse 有時會丟包；優先用 withoutResponse，失敗就 fallback 到 writeValue
+      const canWwr = !!rxChar?.properties?.writeWithoutResponse;
+      const canWr = !!rxChar?.properties?.write;
+      const mode = canWwr ? 'writeWithoutResponse' : (canWr ? 'writeValue' : 'writeValue');
+
+      try {
+        if (mode === 'writeWithoutResponse') {
+          await rxChar.writeValueWithoutResponse(u8);
+        } else {
+          await rxChar.writeValue(u8);
+        }
+        updateStatusLine(`TX(${mode})`);
+      } catch (e) {
+        // fallback
+        await rxChar.writeValue(u8);
+        updateStatusLine('TX(writeValue fallback)');
+      }
+    }
+
     async function writeRawUtf8(str) {
       if (!rxChar) throw new Error('尚未取得可寫入特徵。');
       const data = encodeUtf8(str);
       console.log('[BLE TX raw]', { len: data.length, hex: bytesToHex(data) });
       log(`TX bytes: 長度=${data.length} | HEX=${bytesToHex(data)}`);
-      await rxChar.writeValueWithoutResponse(data);
+      await writeU8(data);
     }
 
     // JSON line protocol: 每筆 JSON 後面必須是「真正的 LF(0x0A)」
@@ -362,6 +384,16 @@
         console.log('[BLE RX notify]', { text, len, hex });
         // C. 改善通知顯示：文字內容 + bytes 長度 + hex
         log(`RX: "${text}" | 長度=${len} | HEX=${hex}`);
+
+        // 另外把 notify chunk 重組成「行」（以 \n 分割），避免裝置把文字與 \n 分開通知時看不到內容
+        rxTextBuffer += text;
+        while (true) {
+          const idx = rxTextBuffer.indexOf('\n');
+          if (idx < 0) break;
+          const line = rxTextBuffer.slice(0, idx);
+          rxTextBuffer = rxTextBuffer.slice(idx + 1);
+          log(`RX line: "${line}"`);
+        }
       });
 
       updateStatusLine('notify 已開啟');
@@ -399,7 +431,8 @@
       };
 
       const totalLength = payload.text.length;
-      const chunkSize = 120;
+      // 下修 chunkSize，避免 JSON escape 後超過韌體 RX_LINE_BUF_SIZE=256 而被截斷
+      const chunkSize = 60;
       const chunkCount = Math.ceil(totalLength / chunkSize);
       log(`準備傳送：總字數=${totalLength}，chunkSize=${chunkSize}，chunk數=${chunkCount}，速度=${payload.cps} cps`);
       updateStatusLine(`TX 準備中｜總字數=${totalLength}｜chunk數=${chunkCount}`);
@@ -415,7 +448,7 @@
         totalLength
       });
 
-      await delay(randInt(50, 100));
+      await delay(randInt(80, 120));
 
       let sentChunks = 0;
       for (let i = 0; i < payload.text.length; i += chunkSize) {
@@ -424,10 +457,10 @@
         await writeJson({ cmd: 'text_chunk', data: part });
         sentChunks++;
         updateStatusLine(`TX 中｜總字數=${totalLength}｜chunk=${sentChunks}/${chunkCount}`);
-        await delay(randInt(30, 50));
+        await delay(randInt(40, 70));
       }
 
-      await delay(randInt(50, 100));
+      await delay(randInt(80, 120));
       await writeJson({ cmd: 'type_end' });
 
       log(`已送出完成：總字數=${totalLength}，chunk數=${sentChunks}/${chunkCount}，速度=${payload.cps} cps`);
