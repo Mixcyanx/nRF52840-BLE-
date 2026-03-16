@@ -284,22 +284,47 @@
       return new TextEncoder().encode(str);
     }
 
-    async function writeJson(obj) {
+    function bytesToHex(u8) {
+      return Array.from(u8).map(b => b.toString(16).padStart(2, '0')).join(' ');
+    }
+
+    function decodeNotifyValue(dataView) {
+      const u8 = new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
+      const text = new TextDecoder().decode(u8);
+      return { text, len: u8.length, hex: bytesToHex(u8), bytes: u8 };
+    }
+
+    function isConnected() {
+      return !!(device && device.gatt && device.gatt.connected && rxChar && txChar);
+    }
+
+    function updateStatusLine(extra = '') {
+      const base = isConnected()
+        ? `已連線：${device?.name || '未命名裝置'}`
+        : '尚未連線';
+      setStatus(extra ? `${base}｜${extra}` : base);
+    }
+
+    async function writeRawUtf8(str) {
       if (!rxChar) throw new Error('尚未取得可寫入特徵。');
-      const data = encodeUtf8(JSON.stringify(obj) + '\n');
+      const data = encodeUtf8(str);
       await rxChar.writeValueWithoutResponse(data);
     }
 
-    async function writeChunkedText(str, chunkSize = 60) {
-      for (let i = 0; i < str.length; i += chunkSize) {
-        const part = str.slice(i, i + chunkSize);
-        await writeJson({ cmd: 'text_chunk', data: part });
-        await delay(35);
-      }
+    // A. 修正 writeJson：必須使用 JSON.stringify(obj) + '\\n'
+    async function writeJson(obj) {
+      const line = JSON.stringify(obj) + '\\n';
+      console.log('[BLE TX jsonl]', line, obj);
+      log(`TX: ${line}`);
+      await writeRawUtf8(line);
     }
 
     function delay(ms) {
       return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function randInt(min, max) {
+      return Math.floor(Math.random() * (max - min + 1)) + min;
     }
 
     function onDisconnected() {
@@ -310,7 +335,6 @@
       service = null;
       rxChar = null;
       txChar = null;
-      busy = false;
     }
 
     async function connectBle() {
@@ -330,15 +354,14 @@
 
       await txChar.startNotifications();
       txChar.addEventListener('characteristicvaluechanged', (event) => {
-        const dataView = event.target.value;
-        const bytes = new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
-        const text = new TextDecoder().decode(bytes);
-        const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' ');
-        log(`裝置回傳：${JSON.stringify(text)} | 長度=${bytes.length} | HEX=${hex}`);
+        const { text, len, hex } = decodeNotifyValue(event.target.value);
+        console.log('[BLE RX notify]', { text, len, hex });
+        // C. 改善通知顯示：文字內容 + bytes 長度 + hex
+        log(`RX: "${text}" | 長度=${len} | HEX=${hex}`);
       });
 
-      setStatus('已連線：' + (device.name || '未命名裝置'));
-      log('連線成功。');
+      updateStatusLine('notify 已開啟');
+      log('連線成功（NUS）。');
     }
 
     async function disconnectBle() {
@@ -350,8 +373,8 @@
 
     async function pingDevice() {
       if (!rxChar) throw new Error('尚未連線。');
+      updateStatusLine('送出 ping');
       await writeJson({ cmd: 'ping' });
-      log('已送出 ping。');
     }
 
     async function sendTypingJob() {
@@ -362,34 +385,56 @@
       if (!text.trim()) throw new Error('請先輸入文字或上傳 TXT。');
 
       busy = true;
-      setStatus('正在送出資料...');
+      updateStatusLine('正在送出資料...');
 
-      const cps = Number(speedEl.value);
-      const switchIme = !!autoImeEl.checked;
-      const imeCommand = imeCommandEl.value;
+      const payload = {
+        cps: Number(speedEl.value),
+        switchIme: !!autoImeEl.checked,
+        imeCommand: imeCommandEl.value,
+        text
+      };
 
+      const totalLength = payload.text.length;
+      const chunkSize = 120;
+      const chunkCount = Math.ceil(totalLength / chunkSize);
+      log(`準備傳送：總字數=${totalLength}，chunkSize=${chunkSize}，chunk數=${chunkCount}，速度=${payload.cps} cps`);
+      updateStatusLine(`TX 準備中｜總字數=${totalLength}｜chunk數=${chunkCount}`);
+
+      // E. 傳送流程：
+      // 1) type_begin -> 2) 等 50~100ms -> 3) 多次 text_chunk（每次間隔 30~50ms）
+      // 5) 再等 50~100ms -> 6) type_end
       await writeJson({
         cmd: 'type_begin',
-        cps,
-        switchIme,
-        imeCommand,
-        totalLength: text.length
+        cps: payload.cps,
+        switchIme: payload.switchIme,
+        imeCommand: payload.imeCommand,
+        totalLength
       });
 
-      await delay(60);
-      await writeChunkedText(text, 60);
-      await delay(60);
+      await delay(randInt(50, 100));
+
+      let sentChunks = 0;
+      for (let i = 0; i < payload.text.length; i += chunkSize) {
+        const part = payload.text.slice(i, i + chunkSize);
+        // D. 送文字時改成 chunk JSON 模式
+        await writeJson({ cmd: 'text_chunk', data: part });
+        sentChunks++;
+        updateStatusLine(`TX 中｜總字數=${totalLength}｜chunk=${sentChunks}/${chunkCount}`);
+        await delay(randInt(30, 50));
+      }
+
+      await delay(randInt(50, 100));
       await writeJson({ cmd: 'type_end' });
 
-      log(`已送出 ${text.length} 字元，速度 ${cps} cps。`);
-      setStatus('資料已送出，等待開發板打字');
+      log(`已送出完成：總字數=${totalLength}，chunk數=${sentChunks}/${chunkCount}，速度=${payload.cps} cps`);
+      updateStatusLine('資料已送出，等待開發板打字');
       busy = false;
     }
 
     async function stopTyping() {
       if (!rxChar) throw new Error('尚未連線。');
+      updateStatusLine('送出 stop');
       await writeJson({ cmd: 'stop' });
-      log('已送出停止指令。');
     }
 
     fileInput.addEventListener('change', async (e) => {
