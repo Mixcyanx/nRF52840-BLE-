@@ -308,14 +308,18 @@
     async function writeRawUtf8(str) {
       if (!rxChar) throw new Error('尚未取得可寫入特徵。');
       const data = encodeUtf8(str);
+      console.log('[BLE TX raw]', { len: data.length, hex: bytesToHex(data) });
+      log(`TX bytes: 長度=${data.length} | HEX=${bytesToHex(data)}`);
       await rxChar.writeValueWithoutResponse(data);
     }
 
-    // A. 修正 writeJson：必須使用 JSON.stringify(obj) + '\\n'
+    // JSON line protocol: 每筆 JSON 後面必須是「真正的 LF(0x0A)」
+    // 在 JS 字串常值中要用 '\n' 來代表 LF；'\\n' 會變成兩個字元 '\'+'n'，裝置端不會當作換行。
     async function writeJson(obj) {
-      const line = JSON.stringify(obj) + '\\n';
-      console.log('[BLE TX jsonl]', line, obj);
-      log(`TX: ${line}`);
+      const line = JSON.stringify(obj) + '\n';
+      const shown = line.replace(/\n/g, '\\n'); // log 顯示成 \n，實際送出是 0x0A
+      console.log('[BLE TX jsonl]', shown, obj);
+      log(`TX: ${shown}`);
       await writeRawUtf8(line);
     }
 
