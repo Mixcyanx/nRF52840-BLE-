@@ -5,29 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>nRF52840 BLE 打字傳輸器</title>
   <style>
-    :root {
-      --line: #334155;
-      --text: #e5e7eb;
-      --muted: #94a3b8;
-      --danger: #ef4444;
-    }
+    :root { --line: #334155; --text: #e5e7eb; --muted: #94a3b8; --danger: #ef4444; }
     * { box-sizing: border-box; }
     body {
-      margin: 0;
-      font-family: Arial, "Noto Sans TC", sans-serif;
+      margin: 0; font-family: Arial, "Noto Sans TC", sans-serif;
       background: linear-gradient(135deg, #020617, #0f172a 45%, #111827);
-      color: var(--text);
-      min-height: 100vh;
-      padding: 18px;
+      color: var(--text); min-height: 100vh; padding: 18px;
     }
     .wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 16px; }
     .card {
-      background: rgba(17, 24, 39, 0.92);
-      border: 1px solid rgba(148, 163, 184, 0.18);
-      border-radius: 18px;
-      padding: 16px;
-      box-shadow: 0 12px 30px rgba(0,0,0,0.28);
-      backdrop-filter: blur(10px);
+      background: rgba(17,24,39,0.92); border: 1px solid rgba(148,163,184,0.18);
+      border-radius: 18px; padding: 16px;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.28); backdrop-filter: blur(10px);
     }
     h1 { font-size: 24px; margin: 0 0 4px; }
     .ver { color: #475569; font-size: 12px; margin-bottom: 8px; }
@@ -35,12 +24,12 @@
     .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
     .full { grid-column: 1 / -1; }
     label { display: block; font-size: 14px; color: #cbd5e1; margin-bottom: 6px; }
-    input[type="file"], select, textarea {
+    input[type="file"], input[type="text"], select, textarea {
       width: 100%; padding: 12px; border-radius: 12px;
       border: 1px solid var(--line); background: #0b1220;
       color: var(--text); font-size: 15px; outline: none;
     }
-    textarea { min-height: 240px; resize: vertical; line-height: 1.6; white-space: pre-wrap; }
+    textarea { min-height: 200px; resize: vertical; line-height: 1.6; white-space: pre-wrap; }
     .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
     button {
       border: 0; border-radius: 12px; padding: 12px 16px;
@@ -50,11 +39,11 @@
     button.warn { background: #ea580c; }
     button.danger { background: var(--danger); }
     button.secondary { background: #0ea5e9; }
+    button.sm { padding: 8px 12px; font-size: 13px; }
     button:disabled { opacity: 0.55; cursor: not-allowed; }
     .status {
       padding: 10px 12px; border-radius: 12px;
-      background: #0b1220; border: 1px solid var(--line);
-      color: #bfdbfe; font-size: 14px;
+      background: #0b1220; border: 1px solid var(--line); color: #bfdbfe; font-size: 14px;
     }
     .mono { font-family: Consolas, Menlo, monospace; font-size: 13px; }
     .hint { color: var(--muted); font-size: 13px; line-height: 1.6; }
@@ -65,6 +54,31 @@
     }
     .checkbox input { transform: scale(1.2); }
     pre { margin: 0; white-space: pre-wrap; word-break: break-word; line-height: 1.55; }
+
+    /* TXT 庫存區 */
+    .gh-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+    .gh-row input { flex: 1; }
+    .file-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+    .file-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px; border-radius: 10px; background: #0b1220;
+      border: 1px solid var(--line); cursor: pointer; transition: border-color 0.2s;
+    }
+    .file-item:hover { border-color: #38bdf8; }
+    .file-item .fname { font-size: 14px; color: #e2e8f0; }
+    .file-item .fsize { font-size: 12px; color: var(--muted); }
+    .folder-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-radius: 10px; background: #0b1220;
+      border: 1px solid var(--line); cursor: pointer; transition: border-color 0.2s;
+      font-size: 14px; color: #fbbf24;
+    }
+    .folder-item:hover { border-color: #fbbf24; }
+    .breadcrumb { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+    .breadcrumb span { cursor: pointer; color: #38bdf8; }
+    .breadcrumb span:hover { text-decoration: underline; }
+    .empty-hint { color: var(--muted); font-size: 13px; text-align: center; padding: 20px; }
+
     @media (max-width: 760px) {
       .grid { grid-template-columns: 1fr; }
       body { padding: 12px; }
@@ -74,27 +88,38 @@
 </head>
 <body>
 <div class="wrap">
+
+  <!-- 標題 -->
   <div class="card">
     <h1>nRF52840 BLE 打字傳輸器</h1>
-    <div class="ver">v2.0.0 — ACK 握手協議</div>
-    <div class="sub">
-      Android Chrome 透過 Web Bluetooth 連線到 nRF52840，將文字經由 BLE 傳給開發板，
-      再由開發板用 USB HID Keyboard 打字到電腦。
-    </div>
+    <div class="ver">v2.1.0 — 分段 ACK 握手 + GitHub TXT 庫</div>
+    <div class="sub">Android Chrome 透過 Web Bluetooth 連線到 nRF52840，將文字經由 BLE 傳給開發板，再由開發板用 USB HID Keyboard 打字到電腦。</div>
     <div class="status" id="status">尚未連線</div>
   </div>
 
+  <!-- 藍牙控制 -->
   <div class="card">
     <div class="row">
       <button id="btnConnect" class="good">連接藍牙</button>
       <button id="btnDisconnect" class="danger">中斷連線</button>
       <button id="btnPing" class="secondary">測試通訊</button>
     </div>
-    <div class="hint" style="margin-top:10px;">
-      需要 <b>HTTPS</b> 或 localhost，以 Android Chrome 開啟。
-    </div>
+    <div class="hint" style="margin-top:10px;">需要 <b>HTTPS</b> 或 localhost，以 Android Chrome 開啟。</div>
   </div>
 
+  <!-- GitHub TXT 庫存區 -->
+  <div class="card">
+    <label>GitHub TXT 庫存</label>
+    <div class="gh-row">
+      <input id="ghRepo" type="text" placeholder="owner/repo" value="Mixcyanx/nRF52840-BLE-" />
+      <input id="ghPath" type="text" placeholder="資料夾路徑" value="TXT" style="flex:1" />
+      <button id="btnGhSync" class="secondary sm">同步</button>
+    </div>
+    <div class="breadcrumb" id="breadcrumb"></div>
+    <div class="file-list" id="fileList"><div class="empty-hint">按「同步」載入檔案列表</div></div>
+  </div>
+
+  <!-- 傳送設定 -->
   <div class="card">
     <div class="grid">
       <div>
@@ -104,11 +129,14 @@
       <div>
         <label for="speed">打字速度</label>
         <select id="speed">
-          <option value="5">很慢（每秒 5 字）</option>
-          <option value="10">慢（每秒 10 字）</option>
-          <option value="20" selected>中（每秒 20 字）</option>
-          <option value="35">快（每秒 35 字）</option>
-          <option value="60">很快（每秒 60 字）</option>
+          <option value="5">很慢（5 字/秒）</option>
+          <option value="10">慢（10 字/秒）</option>
+          <option value="20" selected>中（20 字/秒）</option>
+          <option value="35">快（35 字/秒）</option>
+          <option value="60">很快（60 字/秒）</option>
+          <option value="100">極快（100 字/秒）</option>
+          <option value="150">超快（150 字/秒）</option>
+          <option value="200">最快（200 字/秒）</option>
         </select>
       </div>
       <div>
@@ -124,13 +152,13 @@
       <div>
         <label>&nbsp;</label>
         <div class="checkbox">
-          <input id="autoIme" type="checkbox" checked />
+          <input id="autoIme" type="checkbox" />
           <span>打字前先自動切換輸入法</span>
         </div>
       </div>
       <div class="full">
         <label for="textInput">文字輸入區</label>
-        <textarea id="textInput" placeholder="請貼上要傳給 nRF52840 的文字，支援換行。"></textarea>
+        <textarea id="textInput" placeholder="請貼上要傳給 nRF52840 的文字，或從上方庫存點選載入。"></textarea>
       </div>
     </div>
     <div class="row" style="margin-top:12px;">
@@ -140,39 +168,29 @@
     </div>
   </div>
 
+  <!-- 記錄 -->
   <div class="card">
     <label>記錄</label>
     <div class="status mono"><pre id="logBox">等待操作...</pre></div>
   </div>
+
 </div>
 
 <script>
-  // ── Nordic UART Service UUIDs ──
+  // ── NUS UUIDs ──
   const NUS_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
-  const NUS_RX      = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // Web → nRF
-  const NUS_TX      = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // nRF → Web
-
-  // ── 協議常數 ──
-  // 每行指令格式（純文字，以 \n 結尾）：
-  //   PING\n
-  //   BEGIN <cps> <switchIme> <imeCmd>\n
-  //   DATA <base64chunk>\n
-  //   END\n
-  //   STOP\n
-  // 韌體回應：OK\n 或 ERR\n
+  const NUS_RX      = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+  const NUS_TX      = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
   const ACK_TIMEOUT = 5000;
-  const CHUNK_SIZE  = 6;   // base64 chunk 大小
-  const SEG_SIZE    = 48;  // 每段文字字元數（一次 BEGIN/DATA.../END 流程）
+  const CHUNK_SIZE  = 6;   // 字元數 → base64 8B + "DATA \n" = 14B
+  const SEG_SIZE    = 48;  // 每段字元數，打完再送下一段
 
   let device = null, rxChar = null, txChar = null;
-  let busy = false;
-  let stopFlag = false;
-  let ackResolve = null; // 等待 ACK 的 Promise resolver
+  let busy = false, stopFlag = false;
+  let ackResolve = null, doneResolve = null;
 
-  const enc = new TextEncoder();
-  const dec = new TextDecoder();
-
+  const enc = new TextEncoder(), dec = new TextDecoder();
   const statusEl  = document.getElementById('status');
   const logBox    = document.getElementById('logBox');
   const textInput = document.getElementById('textInput');
@@ -186,57 +204,40 @@
     logBox.textContent += `\n[${t}] ${msg}`;
     logBox.parentElement.scrollTop = logBox.parentElement.scrollHeight;
   }
-
   function setStatus(msg) { statusEl.textContent = msg; }
+  function isConnected() { return !!(device?.gatt?.connected && rxChar && txChar); }
 
-  function isConnected() {
-    return !!(device && device.gatt && device.gatt.connected && rxChar && txChar);
-  }
-
-  // ── 送一行純文字（自動加 \n）──
+  // ── BLE 傳送 ──
   async function sendLine(line) {
     const data = enc.encode(line + '\n');
     log(`TX → ${line}`);
-    // 優先用 writeValue（有回應），更可靠
-    try {
-      await rxChar.writeValue(data);
-    } catch {
-      await rxChar.writeValueWithoutResponse(data);
-    }
+    try { await rxChar.writeValue(data); }
+    catch { await rxChar.writeValueWithoutResponse(data); }
   }
 
-  // ── 送一行並等待 ACK（回傳 true=OK, false=ERR/timeout）──
   function waitAck() {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        ackResolve = null;
-        log('⚠ ACK timeout');
-        resolve(false);
-      }, ACK_TIMEOUT);
-      ackResolve = (ok) => {
-        clearTimeout(timer);
-        ackResolve = null;
-        resolve(ok);
-      };
+    return new Promise(resolve => {
+      const t = setTimeout(() => { ackResolve = null; log('⚠ ACK timeout'); resolve(false); }, ACK_TIMEOUT);
+      ackResolve = ok => { clearTimeout(t); ackResolve = null; resolve(ok); };
     });
   }
 
-  async function sendAndAck(line) {
-    const p = waitAck();
-    await sendLine(line);
-    return p;
+  async function sendAndAck(line) { const p = waitAck(); await sendLine(line); return p; }
+
+  function waitDone() {
+    return new Promise(resolve => {
+      const t = setTimeout(() => { doneResolve = null; resolve(); }, 60000);
+      doneResolve = () => { clearTimeout(t); doneResolve = null; resolve(); };
+    });
   }
 
-  // ── 處理韌體回傳的通知 ──
   function onNotify(event) {
     const text = dec.decode(new Uint8Array(event.target.value.buffer)).trim();
     log(`RX ← ${text}`);
     if (text === 'READY') return;
-    if (text === 'DONE' && doneResolve) { doneResolve(); return; }
-    if (ackResolve) {
-      if (text === 'OK')  ackResolve(true);
-      if (text === 'ERR') ackResolve(false);
-    }
+    if (text === 'DONE') { doneResolve?.(); return; }
+    if (text === 'OK')  ackResolve?.(true);
+    if (text === 'ERR') ackResolve?.(false);
   }
 
   // ── 連線 ──
@@ -244,13 +245,10 @@
     if (!navigator.bluetooth) throw new Error('此瀏覽器不支援 Web Bluetooth');
     setStatus('搜尋裝置...');
     device = await navigator.bluetooth.requestDevice({
-      filters: [{ services: [NUS_SERVICE] }],
-      optionalServices: [NUS_SERVICE]
+      filters: [{ services: [NUS_SERVICE] }], optionalServices: [NUS_SERVICE]
     });
     device.addEventListener('gattserverdisconnected', () => {
-      setStatus('已中斷');
-      log('藍牙已中斷');
-      rxChar = txChar = null;
+      setStatus('已中斷'); log('藍牙已中斷'); rxChar = txChar = null;
     });
     const server  = await device.gatt.connect();
     const service = await server.getPrimaryService(NUS_SERVICE);
@@ -262,59 +260,31 @@
     log('連線成功');
   }
 
-  // ── 傳送單一段落（BEGIN → DATA... → END），等待 typing_done 後才 resolve ──
+  // ── 傳送一段 ──
   async function sendSegment(seg, cps, switchIme, imeCmd) {
-    const ok = await sendAndAck(`BEGIN ${cps} ${switchIme} ${imeCmd}`);
-    if (!ok) throw new Error('BEGIN 未收到 ACK');
-
+    if (!await sendAndAck(`BEGIN ${cps} ${switchIme} ${imeCmd}`)) throw new Error('BEGIN 未收到 ACK');
     for (let i = 0; i < seg.length; i += CHUNK_SIZE) {
       if (stopFlag) { await sendLine('STOP'); return false; }
-      const chunk   = seg.slice(i, i + CHUNK_SIZE);
-      const encoded = btoa(unescape(encodeURIComponent(chunk)));
-      const ack = await sendAndAck(`DATA ${encoded}`);
-      if (!ack) throw new Error('DATA 未收到 ACK');
+      const encoded = btoa(unescape(encodeURIComponent(seg.slice(i, i + CHUNK_SIZE))));
+      if (!await sendAndAck(`DATA ${encoded}`)) throw new Error('DATA 未收到 ACK');
     }
-
-    const endOk = await sendAndAck('END');
-    if (!endOk) throw new Error('END 未收到 ACK');
-
-    // 等韌體打完字（回傳 DONE）
+    if (!await sendAndAck('END')) throw new Error('END 未收到 ACK');
     await waitDone();
     return true;
   }
 
-  // 等待韌體回傳 DONE（打字完成）
-  let doneResolve = null;
-  function waitDone() {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        doneResolve = null;
-        resolve(); // timeout 也繼續，避免卡死
-      }, 30000);
-      doneResolve = () => {
-        clearTimeout(timer);
-        doneResolve = null;
-        resolve();
-      };
-    });
-  }
-
-  // ── 傳送打字任務 ──
+  // ── 傳送全部 ──
   async function sendTypingJob() {
     if (busy) return;
     if (!isConnected()) throw new Error('請先連線');
     const text = textInput.value;
     if (!text.trim()) throw new Error('請先輸入文字');
-
-    busy = true;
-    stopFlag = false;
-
-    const cps       = Number(speedEl.value);
+    busy = true; stopFlag = false;
+    const cps = Number(speedEl.value);
     const switchIme = autoImeEl.checked ? '1' : '0';
-    const imeCmd    = imeCmdEl.value || 'NONE';
-    const total     = text.length;
-    let sent        = 0;
-
+    const imeCmd = imeCmdEl.value || 'NONE';
+    const total = text.length;
+    let sent = 0;
     for (let i = 0; i < total; i += SEG_SIZE) {
       if (stopFlag) break;
       const seg = text.slice(i, i + SEG_SIZE);
@@ -323,53 +293,132 @@
       sent += seg.length;
       log(`段落完成 ${sent}/${total}`);
     }
-
-    log(`全部完成，共 ${total} 字`);
-    setStatus('完成');
-    busy = false;
+    log(`全部完成，共 ${total} 字`); setStatus('完成'); busy = false;
   }
+
+  // ── GitHub TXT 庫存 ──
+  const GITHUB_API = 'https://api.github.com/repos';
+  let ghPathStack = []; // 路徑堆疊，支援子資料夾
+
+  function buildApiUrl(repo, path) {
+    return `${GITHUB_API}/${repo}/contents/${path}`;
+  }
+
+  function renderBreadcrumb(repo, stack) {
+    const bc = document.getElementById('breadcrumb');
+    const base = document.getElementById('ghPath').value.trim();
+    let html = `<span data-idx="-1">🏠 ${base}</span>`;
+    stack.forEach((seg, i) => {
+      html += ` / <span data-idx="${i}">${seg}</span>`;
+    });
+    bc.innerHTML = html;
+    bc.querySelectorAll('span').forEach(el => {
+      el.addEventListener('click', () => {
+        const idx = parseInt(el.dataset.idx);
+        ghPathStack = idx < 0 ? [] : ghPathStack.slice(0, idx + 1);
+        fetchGhDir(repo, buildCurrentPath(base));
+      });
+    });
+  }
+
+  function buildCurrentPath(base) {
+    return [base, ...ghPathStack].filter(Boolean).join('/');
+  }
+
+  async function fetchGhDir(repo, path) {
+    const listEl = document.getElementById('fileList');
+    listEl.innerHTML = '<div class="empty-hint">載入中...</div>';
+    try {
+      const res = await fetch(buildApiUrl(repo, path));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const items = await res.json();
+      renderFileList(repo, items, path);
+    } catch (e) {
+      listEl.innerHTML = `<div class="empty-hint">載入失敗：${e.message}</div>`;
+    }
+  }
+
+  function renderFileList(repo, items, currentPath) {
+    const listEl = document.getElementById('fileList');
+    const base = document.getElementById('ghPath').value.trim();
+    renderBreadcrumb(repo, ghPathStack);
+
+    const dirs  = items.filter(i => i.type === 'dir');
+    const files = items.filter(i => i.type === 'file' && i.name.endsWith('.txt'));
+
+    if (dirs.length === 0 && files.length === 0) {
+      listEl.innerHTML = '<div class="empty-hint">此資料夾沒有 TXT 檔案</div>';
+      return;
+    }
+
+    listEl.innerHTML = '';
+
+    dirs.forEach(dir => {
+      const el = document.createElement('div');
+      el.className = 'folder-item';
+      el.innerHTML = `<span>📁</span><span>${dir.name}</span>`;
+      el.addEventListener('click', () => {
+        ghPathStack.push(dir.name);
+        fetchGhDir(repo, buildCurrentPath(base));
+      });
+      listEl.appendChild(el);
+    });
+
+    files.forEach(file => {
+      const el = document.createElement('div');
+      el.className = 'file-item';
+      const kb = file.size ? `${(file.size/1024).toFixed(1)} KB` : '';
+      el.innerHTML = `<span class="fname">📄 ${file.name}</span><span class="fsize">${kb}</span>`;
+      el.addEventListener('click', async () => {
+        log(`載入：${file.name}`);
+        try {
+          const r = await fetch(file.download_url);
+          textInput.value = await r.text();
+          log(`已載入 ${file.name}（${textInput.value.length} 字元）`);
+        } catch (e) { log(`載入失敗：${e.message}`); }
+      });
+      listEl.appendChild(el);
+    });
+  }
+
+  document.getElementById('btnGhSync').addEventListener('click', () => {
+    const repo = document.getElementById('ghRepo').value.trim();
+    const base = document.getElementById('ghPath').value.trim();
+    if (!repo) { log('請輸入 repo'); return; }
+    ghPathStack = [];
+    fetchGhDir(repo, base);
+  });
 
   // ── 事件綁定 ──
   fileInput.addEventListener('change', async (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+    const f = e.target.files?.[0]; if (!f) return;
     textInput.value = await f.text();
     log(`載入：${f.name}（${textInput.value.length} 字元）`);
   });
 
   document.getElementById('btnConnect').addEventListener('click', async () => {
-    try { await connectBle(); }
-    catch (e) { log('連線失敗：' + e.message); setStatus('連線失敗'); }
+    try { await connectBle(); } catch (e) { log('連線失敗：' + e.message); setStatus('連線失敗'); }
   });
-
-  document.getElementById('btnDisconnect').addEventListener('click', () => {
-    device?.gatt?.disconnect();
-  });
-
+  document.getElementById('btnDisconnect').addEventListener('click', () => device?.gatt?.disconnect());
   document.getElementById('btnPing').addEventListener('click', async () => {
-    try {
-      const ok = await sendAndAck('PING');
-      log(ok ? 'PING → PONG OK' : 'PING 無回應');
-    } catch (e) { log('PING 失敗：' + e.message); }
+    try { log(await sendAndAck('PING') ? 'PING → OK' : 'PING 無回應'); }
+    catch (e) { log('PING 失敗：' + e.message); }
   });
-
   document.getElementById('btnSend').addEventListener('click', async () => {
     try { await sendTypingJob(); }
     catch (e) { busy = false; log('傳送失敗：' + e.message); setStatus('傳送失敗'); }
   });
-
   document.getElementById('btnStop').addEventListener('click', async () => {
     stopFlag = true;
-    try { await sendLine('STOP'); log('已送出 STOP'); }
-    catch (e) { log('STOP 失敗：' + e.message); }
+    try { await sendLine('STOP'); log('已送出 STOP'); } catch (e) { log('STOP 失敗：' + e.message); }
   });
+  document.getElementById('btnClear').addEventListener('click', () => { textInput.value = ''; log('已清空'); });
 
-  document.getElementById('btnClear').addEventListener('click', () => {
-    textInput.value = '';
-    log('已清空');
+  // 頁面載入時自動同步
+  window.addEventListener('load', () => {
+    log('頁面已就緒');
+    document.getElementById('btnGhSync').click();
   });
-
-  log('頁面已就緒');
 </script>
 </body>
 </html>
