@@ -229,6 +229,7 @@
   function onNotify(event) {
     const text = dec.decode(new Uint8Array(event.target.value.buffer)).trim();
     log(`RX ← ${text}`);
+    if (text === 'READY') return; // 連線時的歡迎訊息，忽略
     if (ackResolve) {
       if (text === 'OK')  ackResolve(true);
       if (text === 'ERR') ackResolve(false);
