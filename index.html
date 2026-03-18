@@ -161,8 +161,9 @@
   //   STOP\n
   // 韌體回應：OK\n 或 ERR\n
 
-  const ACK_TIMEOUT = 3000; // ms，等待 ACK 的最長時間
-  const CHUNK_SIZE  = 12;   // 每次送的字元數（base64 後 16 bytes + "DATA \n" = 22 bytes，安全低於 MTU）
+  const ACK_TIMEOUT = 5000;
+  const CHUNK_SIZE  = 6;   // base64 chunk 大小
+  const SEG_SIZE    = 48;  // 每段文字字元數（一次 BEGIN/DATA.../END 流程）
 
   let device = null, rxChar = null, txChar = null;
   let busy = false;
@@ -196,10 +197,11 @@
   async function sendLine(line) {
     const data = enc.encode(line + '\n');
     log(`TX → ${line}`);
+    // 優先用 writeValue（有回應），更可靠
     try {
-      await rxChar.writeValueWithoutResponse(data);
-    } catch {
       await rxChar.writeValue(data);
+    } catch {
+      await rxChar.writeValueWithoutResponse(data);
     }
   }
 
@@ -229,7 +231,8 @@
   function onNotify(event) {
     const text = dec.decode(new Uint8Array(event.target.value.buffer)).trim();
     log(`RX ← ${text}`);
-    if (text === 'READY') return; // 連線時的歡迎訊息，忽略
+    if (text === 'READY') return;
+    if (text === 'DONE' && doneResolve) { doneResolve(); return; }
     if (ackResolve) {
       if (text === 'OK')  ackResolve(true);
       if (text === 'ERR') ackResolve(false);
@@ -259,6 +262,43 @@
     log('連線成功');
   }
 
+  // ── 傳送單一段落（BEGIN → DATA... → END），等待 typing_done 後才 resolve ──
+  async function sendSegment(seg, cps, switchIme, imeCmd) {
+    const ok = await sendAndAck(`BEGIN ${cps} ${switchIme} ${imeCmd}`);
+    if (!ok) throw new Error('BEGIN 未收到 ACK');
+
+    for (let i = 0; i < seg.length; i += CHUNK_SIZE) {
+      if (stopFlag) { await sendLine('STOP'); return false; }
+      const chunk   = seg.slice(i, i + CHUNK_SIZE);
+      const encoded = btoa(unescape(encodeURIComponent(chunk)));
+      const ack = await sendAndAck(`DATA ${encoded}`);
+      if (!ack) throw new Error('DATA 未收到 ACK');
+    }
+
+    const endOk = await sendAndAck('END');
+    if (!endOk) throw new Error('END 未收到 ACK');
+
+    // 等韌體打完字（回傳 DONE）
+    await waitDone();
+    return true;
+  }
+
+  // 等待韌體回傳 DONE（打字完成）
+  let doneResolve = null;
+  function waitDone() {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        doneResolve = null;
+        resolve(); // timeout 也繼續，避免卡死
+      }, 30000);
+      doneResolve = () => {
+        clearTimeout(timer);
+        doneResolve = null;
+        resolve();
+      };
+    });
+  }
+
   // ── 傳送打字任務 ──
   async function sendTypingJob() {
     if (busy) return;
@@ -269,34 +309,23 @@
     busy = true;
     stopFlag = false;
 
-    const cps      = Number(speedEl.value);
+    const cps       = Number(speedEl.value);
     const switchIme = autoImeEl.checked ? '1' : '0';
-    const imeCmd   = imeCmdEl.value || 'NONE';
+    const imeCmd    = imeCmdEl.value || 'NONE';
+    const total     = text.length;
+    let sent        = 0;
 
-    // 1. BEGIN
-    setStatus('傳送中...');
-    const ok = await sendAndAck(`BEGIN ${cps} ${switchIme} ${imeCmd}`);
-    if (!ok) { busy = false; throw new Error('BEGIN 未收到 ACK'); }
-
-    // 2. DATA chunks（用 btoa 做 base64，避免特殊字元干擾純文字協議）
-    const total = text.length;
-    let sent = 0;
-    for (let i = 0; i < total; i += CHUNK_SIZE) {
-      if (stopFlag) { await sendLine('STOP'); busy = false; return; }
-      const chunk   = text.slice(i, i + CHUNK_SIZE);
-      const encoded = btoa(unescape(encodeURIComponent(chunk))); // UTF-8 → base64
-      const ack = await sendAndAck(`DATA ${encoded}`);
-      if (!ack) { busy = false; throw new Error(`DATA chunk ${sent} 未收到 ACK`); }
-      sent += chunk.length;
+    for (let i = 0; i < total; i += SEG_SIZE) {
+      if (stopFlag) break;
+      const seg = text.slice(i, i + SEG_SIZE);
       setStatus(`傳送中 ${sent}/${total}`);
+      await sendSegment(seg, cps, switchIme, imeCmd);
+      sent += seg.length;
+      log(`段落完成 ${sent}/${total}`);
     }
 
-    // 3. END
-    const endOk = await sendAndAck('END');
-    if (!endOk) { busy = false; throw new Error('END 未收到 ACK'); }
-
-    log(`傳送完成，共 ${total} 字`);
-    setStatus('已送出，等待開發板打字');
+    log(`全部完成，共 ${total} 字`);
+    setStatus('完成');
     busy = false;
   }
 
