@@ -1,0 +1,9 @@
+﻿mport java.util.*;
+public class main {
+public static void main(String[] args) {
+Scanner in = new Scanner(System.in);
+int N = in.nextInt();
+int K = in.nextInt();
+System.out.println(c(N, K)); }
+static int c(int N, int K) {
+return K == 0 || K == N ? 1 : c(N - 1, K - 1) + c(N - 1, K); }}
