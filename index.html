@@ -289,7 +289,9 @@
       if (stopFlag) break;
       const seg = text.slice(i, i + SEG_SIZE);
       setStatus(`傳送中 ${sent}/${total}`);
-      await sendSegment(seg, cps, switchIme, imeCmd);
+      // 只有第一段才切換輸入法
+      const segIme = (i === 0) ? switchIme : '0';
+      await sendSegment(seg, cps, segIme, imeCmd);
       sent += seg.length;
       log(`段落完成 ${sent}/${total}`);
     }
