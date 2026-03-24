@@ -101,7 +101,7 @@
       <img src="https://raw.githubusercontent.com/Mixcyanx/WebTyper/main/WebTyper.png" style="width:48px;height:48px;border-radius:10px;" />
       <div>
         <h1>nRF52840 BLE 打字傳輸器</h1>
-        <div class="ver">v2.5.0 — 分段 ACK 握手 + GitHub TXT 庫</div>
+        <div class="ver">v2.5.1 — 分段 ACK 握手 + GitHub TXT 庫</div>
       </div>
     </div>
     <div class="sub">Android Chrome 透過 Web Bluetooth 連線到 nRF52840，將文字經由 BLE 傳給開發板，再由開發板用 USB HID Keyboard 打字到電腦。ios裝置得下載支援BLE的瀏覽器，如:Bluefy。</div>
@@ -194,8 +194,8 @@
   const NUS_TX      = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
   const ACK_TIMEOUT = 5000;
-  const CHUNK_SIZE  = 6;   // 字元數 → base64 8B + "DATA \n" = 14B
-  const SEG_SIZE    = 200; // 每段字元數，夠大讓 pipeline 有效
+  const CHUNK_SIZE  = 18;   // 字元數 → base64 8B + "DATA \n" = 14B
+  const SEG_SIZE    = 1000; // 每段字元數，夠大讓 pipeline 有效
 
   let device = null, rxChar = null, txChar = null;
   let busy = false, stopFlag = false;
