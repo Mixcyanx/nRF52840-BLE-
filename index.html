@@ -101,7 +101,7 @@
       <img src="https://raw.githubusercontent.com/Mixcyanx/WebTyper/main/WebTyper.png" style="width:48px;height:48px;border-radius:10px;" />
       <div>
         <h1>nRF52840 BLE 打字傳輸器</h1>
-        <div class="ver">v2.5.3 — 分段 ACK 握手 + GitHub TXT 庫</div>
+        <div class="ver">v2.5.4 — 分段 ACK 握手 + GitHub TXT 庫</div>
       </div>
     </div>
     <div class="sub">Android Chrome 透過 Web Bluetooth 連線到 nRF52840，將文字經由 BLE 傳給開發板，再由開發板用 USB HID Keyboard 打字到電腦。ios裝置得下載支援BLE的瀏覽器，如:Bluefy。</div>
@@ -193,7 +193,7 @@
   const NUS_RX      = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
   const NUS_TX      = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
-  const ACK_TIMEOUT = 1000;
+  const ACK_TIMEOUT = 5000;
   const CHUNK_SIZE  = 6;   // 字元數 → base64 8B + "DATA \n" = 14B
   const SEG_SIZE    = 200; // 每段字元數，夠大讓 pipeline 有效
 
@@ -324,7 +324,6 @@
     const total = text.length;
     let sent = 0;
     logBox.textContent = `傳送「」`;
-    startTypingSync(text, cps);
     for (let i = 0; i < total; i += SEG_SIZE) {
       if (stopFlag) break;
       const seg = text.slice(i, i + SEG_SIZE);
@@ -333,6 +332,8 @@
       await sendSegment(seg, cps, segIme, imeCmd);
       sent += seg.length;
     }
+    // 所有資料傳完，開發板開始打字，此時才開始同步顯示
+    startTypingSync(text, cps);
     await waitDone();
     setStatus('完成'); busy = false;
   }
