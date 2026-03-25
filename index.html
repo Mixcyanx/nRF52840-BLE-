@@ -193,9 +193,9 @@
   const NUS_RX      = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
   const NUS_TX      = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
-  const ACK_TIMEOUT = 5000;
-  const CHUNK_SIZE  = 6;   // 字元數 → base64 8B + "DATA \n" = 14B
-  const SEG_SIZE    = 200; // 每段字元數，夠大讓 pipeline 有效
+  const ACK_TIMEOUT = 1000;
+  const CHUNK_SIZE  = 18;  // 字元數 → base64 24B，減少來回次數
+  const SEG_SIZE    = 1000; // 每段字元數，夠大讓 pipeline 有效
 
   let device = null, rxChar = null, txChar = null;
   let busy = false, stopFlag = false;
@@ -304,7 +304,7 @@
     if (!await sendAndAck(`BEGIN ${cps} ${switchIme} ${imeCmd}`)) throw new Error('BEGIN 未收到 ACK');
     for (let i = 0; i < seg.length; i += CHUNK_SIZE) {
       if (stopFlag) { await sendLine('STOP'); return false; }
-      const encoded = btoa(unescape(encodeURIComponent(seg.slice(i, i + CHUNK_SIZE))));
+      const encoded = btoa(seg.slice(i, i + CHUNK_SIZE));
       if (!await sendAndAck(`DATA ${encoded}`)) throw new Error('DATA 未收到 ACK');
     }
     if (!await sendAndAck('END')) throw new Error('END 未收到 ACK');
