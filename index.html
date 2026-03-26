@@ -4,8 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>nRF52840 BLE 打字傳輸器</title>
+  <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/Mixcyanx/WebTyper/main/WebTyper.png" />
   <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/Mixcyanx/WebTyper/main/WebTyper.png" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="BLE Typer" />
   <style>
     :root { --line: #334155; --text: #e5e7eb; --muted: #94a3b8; --danger: #ef4444; }
     * { box-sizing: border-box; }
@@ -97,7 +101,7 @@
       <img src="https://raw.githubusercontent.com/Mixcyanx/WebTyper/main/WebTyper.png" style="width:48px;height:48px;border-radius:10px;" />
       <div>
         <h1>nRF52840 BLE 打字傳輸器</h1>
-        <div class="ver">v2.1.0 — 分段 ACK 握手 + GitHub TXT 庫</div>
+        <div class="ver">v2.2.0 — 分段 ACK 握手 + GitHub TXT 庫 + 打字同步顯示</div>
       </div>
     </div>
     <div class="sub">Android Chrome 透過 Web Bluetooth 連線到 nRF52840，將文字經由 BLE 傳給開發板，再由開發板用 USB HID Keyboard 打字到電腦。ios裝置得下載支援BLE的瀏覽器，如:Bluefy。</div>
@@ -118,7 +122,7 @@
   <div class="card">
     <label>GitHub TXT 庫存</label>
     <div class="gh-row">
-      <input id="ghRepo" type="text" placeholder="owner/repo" value="Mixcyanx/nRF52840-BLE-" />
+      <input id="ghRepo" type="text" placeholder="owner/repo" value="Mixcyanx/WebTyper" />
       <input id="ghPath" type="text" placeholder="資料夾路徑" value="TXT" style="flex:1" />
       <button id="btnGhSync" class="secondary sm">同步</button>
     </div>
@@ -189,9 +193,9 @@
   const NUS_RX      = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
   const NUS_TX      = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
-  const ACK_TIMEOUT = 5000;
-  const CHUNK_SIZE  = 6;   // 字元數 → base64 8B + "DATA \n" = 14B
-  const SEG_SIZE    = 200; // 每段字元數，夠大讓 pipeline 有效
+  const ACK_TIMEOUT = 1000;
+  const CHUNK_SIZE  = 18;  // 字元數 → base64 24B，減少來回次數
+  const SEG_SIZE    = 1000; // 每段字元數，夠大讓 pipeline 有效
 
   let device = null, rxChar = null, txChar = null;
   let busy = false, stopFlag = false;
@@ -213,6 +217,30 @@
   }
   function setStatus(msg) { statusEl.textContent = msg; }
   function isConnected() { return !!(device?.gatt?.connected && rxChar && txChar); }
+
+  // 打字進度顯示
+  let typingText = '';
+  let typingPos = 0;
+  let typingInterval = null;
+
+  function startTypingSync(text, cps) {
+    typingText = text;
+    typingPos = 0;
+    clearInterval(typingInterval);
+    const delay = cps > 0 ? Math.max(10, 1000 / cps) : 50;
+    typingInterval = setInterval(() => {
+      if (typingPos >= typingText.length) { clearInterval(typingInterval); return; }
+      typingPos++;
+      const preview = typingText.slice(0, typingPos);
+      logBox.textContent = `傳送「${preview}」`;
+      logBox.parentElement.scrollTop = logBox.parentElement.scrollHeight;
+    }, delay);
+  }
+
+  function stopTypingSync() {
+    clearInterval(typingInterval);
+    typingInterval = null;
+  }
 
   // ── BLE 傳送 ──
   async function sendLine(line) {
@@ -240,9 +268,13 @@
 
   function onNotify(event) {
     const text = dec.decode(new Uint8Array(event.target.value.buffer)).trim();
-    log(`RX ← ${text}`);
     if (text === 'READY') return;
-    if (text === 'DONE') { doneResolve?.(); return; }
+    if (text === 'DONE') {
+      stopTypingSync();
+      logBox.textContent = '傳送完成';
+      logBox.parentElement.scrollTop = logBox.parentElement.scrollHeight;
+      doneResolve?.(); return;
+    }
     if (text === 'OK')  ackResolve?.(true);
     if (text === 'ERR') ackResolve?.(false);
   }
@@ -264,7 +296,7 @@
     await txChar.startNotifications();
     txChar.addEventListener('characteristicvaluechanged', onNotify);
     setStatus(`已連線：${device.name || '未命名'}`);
-    log('連線成功');
+    logBox.textContent = '連線成功';
   }
 
   // ── 傳送一段（pipeline：送完 END 不等 DONE）──
@@ -272,7 +304,7 @@
     if (!await sendAndAck(`BEGIN ${cps} ${switchIme} ${imeCmd}`)) throw new Error('BEGIN 未收到 ACK');
     for (let i = 0; i < seg.length; i += CHUNK_SIZE) {
       if (stopFlag) { await sendLine('STOP'); return false; }
-      const encoded = btoa(unescape(encodeURIComponent(seg.slice(i, i + CHUNK_SIZE))));
+      const encoded = btoa(seg.slice(i, i + CHUNK_SIZE));
       if (!await sendAndAck(`DATA ${encoded}`)) throw new Error('DATA 未收到 ACK');
     }
     if (!await sendAndAck('END')) throw new Error('END 未收到 ACK');
@@ -291,6 +323,7 @@
     const imeCmd = imeCmdEl.value || 'NONE';
     const total = text.length;
     let sent = 0;
+    logBox.textContent = `傳送「」`;
     for (let i = 0; i < total; i += SEG_SIZE) {
       if (stopFlag) break;
       const seg = text.slice(i, i + SEG_SIZE);
@@ -299,8 +332,10 @@
       await sendSegment(seg, cps, segIme, imeCmd);
       sent += seg.length;
     }
+    // 所有資料傳完，開發板開始打字，此時才開始同步顯示
+    startTypingSync(text, cps);
     await waitDone();
-    log(`全部完成，共 ${total} 字`); setStatus('完成'); busy = false;
+    setStatus('完成'); busy = false;
   }
 
   // ── GitHub TXT 庫存 ──
@@ -377,12 +412,11 @@
       const kb = file.size ? `${(file.size/1024).toFixed(1)} KB` : '';
       el.innerHTML = `<span class="fname">📄 ${file.name}</span><span class="fsize">${kb}</span>`;
       el.addEventListener('click', async () => {
-        log(`載入：${file.name}`);
         try {
           const r = await fetch(file.download_url);
           textInput.value = await r.text();
-          log(`已載入 ${file.name}（${textInput.value.length} 字元）`);
-        } catch (e) { log(`載入失敗：${e.message}`); }
+          logBox.textContent = `已載入 ${file.name}（${textInput.value.length} 字元）`;
+        } catch (e) { logBox.textContent = `載入失敗：${e.message}`; }
       });
       listEl.appendChild(el);
     });
@@ -400,30 +434,30 @@
   fileInput.addEventListener('change', async (e) => {
     const f = e.target.files?.[0]; if (!f) return;
     textInput.value = await f.text();
-    log(`載入：${f.name}（${textInput.value.length} 字元）`);
+    logBox.textContent = `載入：${f.name}（${textInput.value.length} 字元）`;
   });
 
   document.getElementById('btnConnect').addEventListener('click', async () => {
-    try { await connectBle(); } catch (e) { log('連線失敗：' + e.message); setStatus('連線失敗'); }
+    try { await connectBle(); } catch (e) { logBox.textContent = '連線失敗：' + e.message; setStatus('連線失敗'); }
   });
   document.getElementById('btnDisconnect').addEventListener('click', () => device?.gatt?.disconnect());
   document.getElementById('btnPing').addEventListener('click', async () => {
-    try { log(await sendAndAck('PING') ? 'PING → OK' : 'PING 無回應'); }
-    catch (e) { log('PING 失敗：' + e.message); }
+    try { logBox.textContent = await sendAndAck('PING') ? 'PING → OK' : 'PING 無回應'; }
+    catch (e) { logBox.textContent = 'PING 失敗：' + e.message; }
   });
   document.getElementById('btnSend').addEventListener('click', async () => {
     try { await sendTypingJob(); }
-    catch (e) { busy = false; log('傳送失敗：' + e.message); setStatus('傳送失敗'); }
+    catch (e) { stopTypingSync(); busy = false; logBox.textContent = '傳送失敗：' + e.message; setStatus('傳送失敗'); }
   });
   document.getElementById('btnStop').addEventListener('click', async () => {
-    stopFlag = true;
-    try { await sendLine('STOP'); log('已送出 STOP'); } catch (e) { log('STOP 失敗：' + e.message); }
+    stopFlag = true; stopTypingSync();
+    try { await sendLine('STOP'); logBox.textContent = '已停止'; } catch (e) { logBox.textContent = 'STOP 失敗：' + e.message; }
   });
-  document.getElementById('btnClear').addEventListener('click', () => { textInput.value = ''; log('已清空'); });
+  document.getElementById('btnClear').addEventListener('click', () => { textInput.value = ''; logBox.textContent = '已清空'; });
 
   // 頁面載入時自動同步
   window.addEventListener('load', () => {
-    log('頁面已就緒');
+    logBox.textContent = '頁面已就緒';
     document.getElementById('btnGhSync').click();
   });
 </script>
