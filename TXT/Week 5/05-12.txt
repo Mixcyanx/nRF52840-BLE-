@@ -1,9 +1,13 @@
-﻿mport java.util.*;
+import java.util.*;
 public class main {
 public static void main(String[] args) {
 Scanner in = new Scanner(System.in);
+if(in.hasNextInt()){
 int N = in.nextInt();
+if(in.hasNextInt()){
 int K = in.nextInt();
-System.out.println(c(N, K)); }
-static int c(int N, int K) {
-return K == 0 || K == N ? 1 : c(N - 1, K - 1) + c(N - 1, K); }}
+System.out.print(C(N,K)+"\r\n");}}}
+public static int C(int n, int k) {
+if(k==0||k==n){
+return 1;}
+return C(n-1,k-1)+C(n-1,k);}}
